@@ -13,7 +13,14 @@ interface ChatMessage {
   sender: 'user' | 'ai'
 }
 
-type Step = 'input' | 'select' | 'chat'
+interface DailyRecord {
+  date: string
+  items: ReflectionItem[]
+  selectedItem: ReflectionItem | null
+  chatMessages: ChatMessage[]
+}
+
+type Step = 'input' | 'select' | 'chat' | 'history'
 
 export default function ReflectionApp() {
   const [step, setStep] = useState<Step>('input')
@@ -21,6 +28,41 @@ export default function ReflectionApp() {
   const [selectedItem, setSelectedItem] = useState<ReflectionItem | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [currentMessage, setCurrentMessage] = useState('')
+  const [records, setRecords] = useState<DailyRecord[]>([])
+
+  const today = new Date().toISOString().split('T')[0]
+
+  // ローカルストレージから記録を読み込み
+  const loadRecords = () => {
+    const saved = localStorage.getItem('reflection-records')
+    if (saved) {
+      setRecords(JSON.parse(saved))
+    }
+  }
+
+  // 記録を保存
+  const saveRecord = () => {
+    const record: DailyRecord = {
+      date: today,
+      items: items.filter(item => item.text.trim()),
+      selectedItem,
+      chatMessages
+    }
+    
+    const updatedRecords = records.filter(r => r.date !== today)
+    updatedRecords.push(record)
+    
+    setRecords(updatedRecords)
+    localStorage.setItem('reflection-records', JSON.stringify(updatedRecords))
+  }
+
+  // 今日の記録があるかチェック
+  const todayRecord = records.find(r => r.date === today)
+
+  // 初回読み込み
+  useState(() => {
+    loadRecords()
+  })
 
   const addItem = (type: 'good' | 'growth') => {
     const newItem: ReflectionItem = {
@@ -43,13 +85,48 @@ export default function ReflectionApp() {
     setSelectedItem(item)
     setStep('chat')
     
-    // AIの最初のメッセージ
     const initialMessage: ChatMessage = {
       id: Date.now().toString(),
       text: `「${item.text}」について振り返りたいのですね。なぜこの点について深く考えたいと思ったのでしょうか？`,
       sender: 'ai'
     }
     setChatMessages([initialMessage])
+    saveRecord() // 選択時に保存
+  }
+
+  const getAIResponse = (userText: string, messageCount: number): string => {
+    const lowerText = userText.toLowerCase()
+    
+    // 段階的な質問パターン
+    if (messageCount <= 2) {
+      // 初期段階：背景を探る
+      if (lowerText.includes('うまく') || lowerText.includes('良かった')) {
+        return 'その成功の要因は何だったと思いますか？偶然ではなく、あなたの行動や判断で影響したことはありますか？'
+      }
+      if (lowerText.includes('課題') || lowerText.includes('問題')) {
+        return 'その課題が生まれた根本的な原因は何でしょうか？表面的な問題の奥にある本質を考えてみてください。'
+      }
+      return 'もう少し具体的に教えてください。その時の状況や、あなたの感情はどうでしたか？'
+    }
+    
+    if (messageCount <= 4) {
+      // 中期段階：深掘りと視点転換
+      const challenges = [
+        'では、その考えに対して「本当にそうだろうか？」と疑問を持ってみてください。反対の証拠はありませんか？',
+        'もしあなたの親しい友人が同じ状況にいたら、どんなアドバイスをしますか？',
+        'その状況で、あなたが最も恐れていることは何ですか？その恐れは現実的でしょうか？'
+      ]
+      return challenges[Math.floor(Math.random() * challenges.length)]
+    }
+    
+    // 後期段階：行動と学びに焦点
+    const actionQuestions = [
+      'これまでの対話を通じて、新しく気づいたことはありますか？',
+      '明日から実際に変えられることを一つ挙げるとしたら何でしょうか？',
+      'この経験から得た最も重要な学びを一言で表すとしたら？',
+      '同じような状況に再び直面した時、今度はどう行動しますか？'
+    ]
+    return actionQuestions[Math.floor(Math.random() * actionQuestions.length)]
   }
 
   const sendMessage = () => {
@@ -62,28 +139,21 @@ export default function ReflectionApp() {
     }
 
     setChatMessages(prev => [...prev, userMessage])
+    const messageCount = chatMessages.length
     setCurrentMessage('')
 
-    // 簡単なAI応答のシミュレーション
     setTimeout(() => {
-      const aiResponses = [
-        'それは興味深い視点ですね。その背景にはどのような要因があると思いますか？',
-        'なるほど。では、それに対してどのような課題を感じていますか？',
-        'その考えに対して、反対の立場から見るとどうでしょうか？',
-        'もしその状況を改善するとしたら、どのようなアプローチが考えられますか？',
-        'これまでの経験で、似たような状況はありましたか？その時はどう対処しましたか？'
-      ]
-      
-      const randomResponse = aiResponses[Math.floor(Math.random() * aiResponses.length)]
+      const aiResponse = getAIResponse(currentMessage, messageCount)
       
       const aiMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
-        text: randomResponse,
+        text: aiResponse,
         sender: 'ai'
       }
       
       setChatMessages(prev => [...prev, aiMessage])
-    }, 1000)
+      saveRecord() // メッセージ送信時に保存
+    }, 1500)
   }
 
   const goToNextStep = () => {
@@ -105,7 +175,82 @@ export default function ReflectionApp() {
   return (
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold text-center mb-8 text-gray-800">振り返りの時間</h1>
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-800">振り返りの時間</h1>
+          <div className="space-x-2">
+            <button
+              onClick={() => setStep('history')}
+              className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700"
+            >
+              履歴
+            </button>
+            {step !== 'input' && (
+              <button
+                onClick={() => {
+                  setStep('input')
+                  setItems([])
+                  setSelectedItem(null)
+                  setChatMessages([])
+                }}
+                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              >
+                新規作成
+              </button>
+            )}
+          </div>
+        </div>
+
+        {step === 'history' && (
+          <div className="space-y-4">
+            <h2 className="text-2xl font-semibold mb-4">過去の振り返り</h2>
+            {records.length === 0 ? (
+              <p className="text-gray-500">まだ記録がありません</p>
+            ) : (
+              records.sort((a, b) => b.date.localeCompare(a.date)).map(record => (
+                <div key={record.date} className="bg-white p-6 rounded-lg shadow">
+                  <h3 className="text-lg font-semibold mb-3">{record.date}</h3>
+                  
+                  <div className="grid md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <h4 className="font-medium text-green-700 mb-2">良かったこと</h4>
+                      {record.items.filter(item => item.type === 'good').map(item => (
+                        <p key={item.id} className="text-sm bg-green-50 p-2 rounded mb-1">{item.text}</p>
+                      ))}
+                    </div>
+                    <div>
+                      <h4 className="font-medium text-blue-700 mb-2">伸び代</h4>
+                      {record.items.filter(item => item.type === 'growth').map(item => (
+                        <p key={item.id} className="text-sm bg-blue-50 p-2 rounded mb-1">{item.text}</p>
+                      ))}
+                    </div>
+                  </div>
+
+                  {record.selectedItem && (
+                    <div className="border-t pt-4">
+                      <h4 className="font-medium mb-2">選択したトピック</h4>
+                      <p className="text-sm bg-gray-50 p-2 rounded mb-3">{record.selectedItem.text}</p>
+                      
+                      {record.chatMessages.length > 1 && (
+                        <div>
+                          <h4 className="font-medium mb-2">対話記録</h4>
+                          <div className="max-h-40 overflow-y-auto space-y-2">
+                            {record.chatMessages.map(msg => (
+                              <div key={msg.id} className={`text-xs p-2 rounded ${
+                                msg.sender === 'user' ? 'bg-purple-100 ml-4' : 'bg-gray-100 mr-4'
+                              }`}>
+                                <span className="font-medium">{msg.sender === 'user' ? 'あなた' : 'AI'}:</span> {msg.text}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        )}
         
         {step === 'input' && (
           <div className="space-y-6">
