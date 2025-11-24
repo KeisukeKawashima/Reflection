@@ -120,6 +120,16 @@ export default function ReflectionApp() {
   }, [])
 
   useEffect(() => {
+    // 全てのtextareaの高さを調整
+    const textareas = document.querySelectorAll('textarea')
+    textareas.forEach(textarea => {
+      if (textarea instanceof HTMLTextAreaElement) {
+        autoResizeTextarea(textarea)
+      }
+    })
+  }, [items])
+
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'c' && selectedItem) {
         e.preventDefault()
@@ -159,6 +169,11 @@ export default function ReflectionApp() {
 
   const updateItem = (id: string, text: string) => {
     setItems(items.map(item => item.id === id ? { ...item, text } : item))
+  }
+
+  const autoResizeTextarea = (element: HTMLTextAreaElement) => {
+    element.style.height = '0px'
+    element.style.height = Math.max(element.scrollHeight, 80) + 'px'
   }
 
   const moveItem = (id: string, x: number, y: number) => {
@@ -407,7 +422,7 @@ export default function ReflectionApp() {
               {items.map(item => (
                 <div
                   key={item.id}
-                  className={`absolute w-48 min-h-28 p-3 rounded-lg shadow-lg cursor-move select-none ${
+                  className={`absolute w-48 p-3 pt-6 rounded-lg shadow-lg cursor-move select-none ${
                     item.type === 'good' 
                       ? 'bg-green-400 text-green-900' 
                       : 'bg-blue-400 text-blue-900'
@@ -426,10 +441,19 @@ export default function ReflectionApp() {
                   </button>
                   <textarea
                     value={item.text}
-                    onChange={(e) => updateItem(item.id, e.target.value)}
-                    className="w-full h-full bg-transparent resize-none border-none outline-none text-sm font-medium placeholder-current placeholder-opacity-60"
+                    onChange={(e) => {
+                      updateItem(item.id, e.target.value)
+                      setTimeout(() => autoResizeTextarea(e.target), 0)
+                    }}
+                    className="w-full bg-transparent resize-none border-none outline-none text-sm font-medium placeholder-current placeholder-opacity-60 block break-words"
                     placeholder={item.type === 'good' ? 'うまくいったこと...' : 'もっと良くできそうなこと...'}
                     onMouseDown={(e) => e.stopPropagation()}
+                    style={{ 
+                      wordWrap: 'break-word',
+                      whiteSpace: 'pre-wrap',
+                      overflowWrap: 'break-word',
+                      overflow: 'hidden'
+                    }}
                   />
                 </div>
               ))}
