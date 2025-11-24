@@ -9,6 +9,17 @@ interface ReflectionItem {
   y: number
 }
 
+type ConnectionPoint = 'top' | 'right' | 'bottom' | 'left'
+
+interface Connection {
+  id: string
+  from: string
+  fromPoint: ConnectionPoint
+  to: string
+  toPoint: ConnectionPoint
+  label?: string
+}
+
 interface ChatMessage {
   id: string
   text: string
@@ -39,6 +50,11 @@ export default function ReflectionApp() {
   const [copiedItem, setCopiedItem] = useState<ReflectionItem | null>(null)
   const [showWelcome, setShowWelcome] = useState(true)
   const [isAiTyping, setIsAiTyping] = useState(false)
+  const [connections, setConnections] = useState<Connection[]>([])
+  const [connectingFrom, setConnectingFrom] = useState<{ itemId: string; point: ConnectionPoint } | null>(null)
+  const [connectionPreview, setConnectionPreview] = useState<{ x: number; y: number } | null>(null)
+  const [hoveredPoint, setHoveredPoint] = useState<{ itemId: string; point: ConnectionPoint } | null>(null)
+  const [editingConnection, setEditingConnection] = useState<string | null>(null)
 
   const today = new Date().toISOString().split('T')[0]
 
@@ -127,6 +143,21 @@ export default function ReflectionApp() {
     
     return () => clearTimeout(timer)
   }, [])
+
+  // 接続線のマウス移動とキャンセル
+  useEffect(() => {
+    if (connectingFrom) {
+      document.addEventListener('mousemove', handleConnectionMouseMove)
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') cancelConnection()
+      }
+      document.addEventListener('keydown', handleKeyDown)
+      return () => {
+        document.removeEventListener('mousemove', handleConnectionMouseMove)
+        document.removeEventListener('keydown', handleKeyDown)
+      }
+    }
+  }, [connectingFrom])
 
   useEffect(() => {
     // 全てのtextareaの高さを調整
@@ -225,8 +256,85 @@ export default function ReflectionApp() {
     setDraggedItem(null)
   }
 
+  // 接続ポイントの座標を取得（DOMから実際の位置を取得）
+  const getPointPosition = (itemId: string, point: ConnectionPoint) => {
+    const item = items.find(i => i.id === itemId)
+    if (!item) return { x: 0, y: 0 }
+
+    // DOMから接続ポイントの実際の位置を取得
+    const dotElement = document.querySelector(`[data-connection-point="${itemId}-${point}"]`) as HTMLElement
+    const boardElement = document.querySelector('[data-board]') as HTMLElement
+    
+    if (dotElement && boardElement) {
+      const dotRect = dotElement.getBoundingClientRect()
+      const boardRect = boardElement.getBoundingClientRect()
+      
+      // ボード内での相対座標を計算
+      return {
+        x: dotRect.left - boardRect.left + dotRect.width / 2,
+        y: dotRect.top - boardRect.top + dotRect.height / 2
+      }
+    }
+
+    // フォールバック: 計算で求める
+    const width = 224
+    const element = document.querySelector(`[data-item-id="${itemId}"]`) as HTMLElement
+    const height = element?.offsetHeight || 112
+    const centerX = item.x + width / 2
+    const centerY = item.y + height / 2
+    
+    switch (point) {
+      case 'top': return { x: centerX, y: item.y }
+      case 'right': return { x: item.x + width, y: centerY }
+      case 'bottom': return { x: centerX, y: item.y + height }
+      case 'left': return { x: item.x, y: centerY }
+    }
+  }
+
   const deleteItem = (id: string) => {
     setItems(items.filter(item => item.id !== id))
+    // 関連する接続も削除
+    setConnections(connections.filter(conn => conn.from !== id && conn.to !== id))
+  }
+
+  const startConnection = (e: React.MouseEvent, itemId: string, point: ConnectionPoint) => {
+    e.stopPropagation()
+    e.preventDefault()
+    setConnectingFrom({ itemId, point })
+    const pos = getPointPosition(itemId, point)
+    setConnectionPreview(pos)
+  }
+
+  const completeConnection = (toId: string, toPoint: ConnectionPoint) => {
+    if (connectingFrom && connectingFrom.itemId !== toId) {
+      const newConnection: Connection = {
+        id: Date.now().toString(),
+        from: connectingFrom.itemId,
+        fromPoint: connectingFrom.point,
+        to: toId,
+        toPoint: toPoint
+      }
+      setConnections([...connections, newConnection])
+    }
+    setConnectingFrom(null)
+    setConnectionPreview(null)
+  }
+
+  const deleteConnection = (connectionId: string) => {
+    setConnections(connections.filter(conn => conn.id !== connectionId))
+    setEditingConnection(null)
+  }
+
+  const handleConnectionMouseMove = (e: MouseEvent) => {
+    if (connectingFrom) {
+      // ヘッダーの高さ（73px）を引いてSVG座標に変換
+      setConnectionPreview({ x: e.clientX, y: e.clientY - 73 })
+    }
+  }
+
+  const cancelConnection = () => {
+    setConnectingFrom(null)
+    setConnectionPreview(null)
   }
 
   const copyItem = (id: string) => {
@@ -241,6 +349,26 @@ export default function ReflectionApp() {
       y: item.y + 20
     }
     setItems([...items, newItem])
+  }
+
+  // 矢印の座標を計算（Miroスタイル - ポイント間接続）
+  const getConnectionPath = (conn: Connection) => {
+    const start = getPointPosition(conn.from, conn.fromPoint)
+    const end = getPointPosition(conn.to, conn.toPoint)
+
+    const dx = end.x - start.x
+    const dy = end.y - start.y
+    
+    // 直角に曲がる線（Miroスタイル）
+    if (Math.abs(dx) > Math.abs(dy)) {
+      // 横方向が主
+      const midX = start.x + dx / 2
+      return `M ${start.x} ${start.y} L ${midX} ${start.y} L ${midX} ${end.y} L ${end.x} ${end.y}`
+    } else {
+      // 縦方向が主
+      const midY = start.y + dy / 2
+      return `M ${start.x} ${start.y} L ${start.x} ${midY} L ${end.x} ${midY} L ${end.x} ${end.y}`
+    }
   }
 
   const selectItemForReflection = (item: ReflectionItem) => {
@@ -431,6 +559,65 @@ export default function ReflectionApp() {
               onMouseUp={handleMouseUp}
               onMouseLeave={handleMouseUp}
             >
+              {/* 接続線（SVG） */}
+              <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
+                <defs>
+                  <marker
+                    id="arrowhead"
+                    markerWidth="8"
+                    markerHeight="8"
+                    refX="7"
+                    refY="4"
+                    orient="auto"
+                  >
+                    <path d="M 0 0 L 8 4 L 0 8 z" fill="#2563eb" />
+                  </marker>
+                  <marker
+                    id="arrowhead-hover"
+                    markerWidth="8"
+                    markerHeight="8"
+                    refX="7"
+                    refY="4"
+                    orient="auto"
+                  >
+                    <path d="M 0 0 L 8 4 L 0 8 z" fill="#ef4444" />
+                  </marker>
+                </defs>
+                {connections.map(conn => (
+                  <g key={conn.id} className="pointer-events-auto cursor-pointer group/conn" onClick={() => deleteConnection(conn.id)}>
+                    {/* 太い透明な線（クリック領域を広げる） */}
+                    <path
+                      d={getConnectionPath(conn)}
+                      stroke="transparent"
+                      strokeWidth="12"
+                      fill="none"
+                    />
+                    {/* 実際の線 */}
+                    <path
+                      d={getConnectionPath(conn)}
+                      stroke="#2563eb"
+                      strokeWidth="2"
+                      fill="none"
+                      markerEnd="url(#arrowhead)"
+                      className="group-hover/conn:stroke-red-500 transition-colors"
+                    />
+                  </g>
+                ))}
+                {/* 接続中のプレビュー線 */}
+                {connectingFrom && connectionPreview && (
+                  <line
+                    x1={getPointPosition(connectingFrom.itemId, connectingFrom.point).x}
+                    y1={getPointPosition(connectingFrom.itemId, connectingFrom.point).y}
+                    x2={connectionPreview.x}
+                    y2={connectionPreview.y}
+                    stroke="#3b82f6"
+                    strokeWidth="2"
+                    strokeDasharray="8,4"
+                    className="pointer-events-none"
+                  />
+                )}
+              </svg>
+
               {/* ウェルカムメッセージ */}
               {showWelcome && items.length === 0 && (
                 <div className={`absolute inset-0 flex items-center justify-center bg-gray-50 z-30 transition-opacity duration-1000 ${
@@ -448,17 +635,71 @@ export default function ReflectionApp() {
               {items.map(item => (
                 <div
                   key={item.id}
-                  className={`group absolute w-56 p-4 rounded-xl shadow-sm cursor-move select-none border backdrop-blur-sm ${
+                  data-item-id={item.id}
+                  className={`group/item absolute w-56 p-4 rounded-lg cursor-move select-none border-2 ${
                     item.type === 'good' 
-                      ? 'bg-green-50/90 text-gray-800 border-green-200/50' 
-                      : 'bg-blue-50/90 text-gray-800 border-blue-200/50'
-                  } ${draggedItem === item.id ? 'shadow-lg z-50 scale-105' : 'hover:shadow-md transition-all'} ${
-                    selectedItem === item.id ? 'ring-2 ring-gray-300' : ''
-                  }`}
+                      ? 'bg-green-100 text-gray-900 border-green-300' 
+                      : 'bg-blue-100 text-gray-900 border-blue-300'
+                  } ${draggedItem === item.id ? 'shadow-2xl z-50' : 'shadow-md hover:shadow-lg transition-all'} ${
+                    selectedItem === item.id ? 'ring-2 ring-blue-500 ring-offset-2' : ''
+                  } ${connectingFrom?.itemId === item.id ? 'ring-2 ring-blue-500 ring-offset-2' : ''}`}
                   style={{ left: item.x, top: item.y }}
-                  onMouseDown={(e) => handleMouseDown(e, item.id)}
-                  onClick={() => setSelectedItem(item.id)}
+                  onMouseDown={(e) => {
+                    // 接続ドット以外でドラッグ開始
+                    if (!(e.target as HTMLElement).classList.contains('connection-dot')) {
+                      handleMouseDown(e, item.id)
+                    }
+                  }}
+                  onClick={(e) => {
+                    if (!connectingFrom) {
+                      setSelectedItem(item.id)
+                    }
+                  }}
                 >
+                  {/* 接続ポイント（Miroスタイル - 4方向） */}
+                  {(['top', 'right', 'bottom', 'left'] as ConnectionPoint[]).map(point => {
+                    const isHovered = hoveredPoint?.itemId === item.id && hoveredPoint?.point === point
+                    const isConnected = connections.some(c => 
+                      (c.from === item.id && c.fromPoint === point) || 
+                      (c.to === item.id && c.toPoint === point)
+                    )
+                    const positionClass = {
+                      top: 'left-1/2 -top-2 -translate-x-1/2',
+                      right: '-right-2 top-1/2 -translate-y-1/2',
+                      bottom: 'left-1/2 -bottom-2 -translate-x-1/2',
+                      left: '-left-2 top-1/2 -translate-y-1/2'
+                    }[point]
+
+                    return (
+                      <div
+                        key={point}
+                        data-connection-point={`${item.id}-${point}`}
+                        className={`connection-dot absolute transform w-3 h-3 bg-white border-2 border-blue-500 rounded-full transition-all cursor-pointer z-20 ${positionClass} ${
+                          isConnected ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100'
+                        } ${isHovered || (connectingFrom && hoveredPoint?.itemId === item.id && hoveredPoint?.point === point) ? 'scale-150 bg-blue-500' : ''}`}
+                        onMouseDown={(e) => {
+                          e.stopPropagation()
+                        }}
+                        onMouseEnter={() => {
+                          if (connectingFrom) {
+                            setHoveredPoint({ itemId: item.id, point })
+                          }
+                        }}
+                        onMouseLeave={() => setHoveredPoint(null)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (connectingFrom) {
+                            if (connectingFrom.itemId !== item.id) {
+                              completeConnection(item.id, point)
+                            }
+                          } else {
+                            startConnection(e, item.id, point)
+                          }
+                        }}
+                      />
+                    )
+                  })}
+                  
                   <div className="flex items-start justify-between mb-2">
                     <span className={`text-xs font-medium ${
                       item.type === 'good' ? 'text-green-700' : 'text-blue-700'
@@ -510,7 +751,14 @@ export default function ReflectionApp() {
               {/* ヘルプテキスト */}
               {items.length > 0 && (
                 <div className="fixed bottom-6 left-6 z-10 text-xs text-gray-400 bg-white/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-200">
-                  <p>💡 クリックで選択 | Delete で削除 | Ctrl+C/V でコピー</p>
+                  <p>💡 ホバーして青いドットをドラッグで接続 | Delete で削除 | Ctrl+C/V でコピー</p>
+                </div>
+              )}
+              
+              {/* 接続中のヒント */}
+              {connectingFrom && (
+                <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-20 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg text-sm">
+                  接続先の付箋をクリック | Escでキャンセル
                 </div>
               )}
             </div>
