@@ -38,6 +38,7 @@ export default function ReflectionApp() {
   const [selectedItem, setSelectedItem] = useState<string | null>(null)
   const [copiedItem, setCopiedItem] = useState<ReflectionItem | null>(null)
   const [showWelcome, setShowWelcome] = useState(true)
+  const [isAiTyping, setIsAiTyping] = useState(false)
 
   const today = new Date().toISOString().split('T')[0]
 
@@ -139,6 +140,13 @@ export default function ReflectionApp() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // テキスト入力中は無視
+      const target = e.target as HTMLElement
+      if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
+        return
+      }
+
+      // Ctrl/Cmd + C でコピー
       if ((e.metaKey || e.ctrlKey) && e.key === 'c' && selectedItem) {
         e.preventDefault()
         const item = items.find(i => i.id === selectedItem)
@@ -147,6 +155,7 @@ export default function ReflectionApp() {
         }
       }
       
+      // Ctrl/Cmd + V でペースト
       if ((e.metaKey || e.ctrlKey) && e.key === 'v' && copiedItem) {
         e.preventDefault()
         const newItem: ReflectionItem = {
@@ -157,6 +166,13 @@ export default function ReflectionApp() {
           y: Math.min(copiedItem.y + 20, 480)
         }
         setItems([...items, newItem])
+      }
+
+      // Delete/Backspace で削除
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedItem) {
+        e.preventDefault()
+        deleteItem(selectedItem)
+        setSelectedItem(null)
       }
     }
 
@@ -241,7 +257,7 @@ export default function ReflectionApp() {
   }
 
   const sendMessage = async () => {
-    if (!currentMessage.trim()) return
+    if (!currentMessage.trim() || isAiTyping) return
 
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
@@ -258,6 +274,7 @@ export default function ReflectionApp() {
     const messageCount = chatMessages.length
     const messageText = currentMessage
     setCurrentMessage('')
+    setIsAiTyping(true)
 
     try {
       const response = await fetch('/api/chat', {
@@ -294,6 +311,8 @@ export default function ReflectionApp() {
         setTimeout(() => saveRecord(), 100)
         return newMessages
       })
+    } finally {
+      setIsAiTyping(false)
     }
   }
 
@@ -429,7 +448,7 @@ export default function ReflectionApp() {
               {items.map(item => (
                 <div
                   key={item.id}
-                  className={`absolute w-56 p-4 rounded-xl shadow-sm cursor-move select-none border backdrop-blur-sm ${
+                  className={`group absolute w-56 p-4 rounded-xl shadow-sm cursor-move select-none border backdrop-blur-sm ${
                     item.type === 'good' 
                       ? 'bg-green-50/90 text-gray-800 border-green-200/50' 
                       : 'bg-blue-50/90 text-gray-800 border-blue-200/50'
@@ -447,8 +466,12 @@ export default function ReflectionApp() {
                       {item.type === 'good' ? '✓ 良かったこと' : '→ 改善したいこと'}
                     </span>
                     <button
-                      onClick={() => deleteItem(item.id)}
-                      className="w-5 h-5 text-gray-400 hover:text-gray-600 transition-colors flex items-center justify-center rounded hover:bg-gray-200/50"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        deleteItem(item.id)
+                      }}
+                      className="opacity-0 group-hover:opacity-100 w-5 h-5 text-gray-400 hover:text-red-600 transition-all flex items-center justify-center rounded hover:bg-red-50"
+                      title="削除 (Delete)"
                     >
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -478,8 +501,16 @@ export default function ReflectionApp() {
               {items.length === 0 && !showWelcome && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                   <div className="text-center text-gray-300">
-                    <p className="text-base">付箋を追加して始めましょう</p>
+                    <p className="text-base mb-2">付箋を追加して始めましょう</p>
+                    <p className="text-xs text-gray-400">左のボタンから追加できます</p>
                   </div>
+                </div>
+              )}
+
+              {/* ヘルプテキスト */}
+              {items.length > 0 && (
+                <div className="fixed bottom-6 left-6 z-10 text-xs text-gray-400 bg-white/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-200">
+                  <p>💡 クリックで選択 | Delete で削除 | Ctrl+C/V でコピー</p>
                 </div>
               )}
             </div>
@@ -583,6 +614,24 @@ export default function ReflectionApp() {
                   </div>
                 </div>
               ))}
+              
+              {/* AIタイピングインジケーター */}
+              {isAiTyping && (
+                <div className="flex justify-start">
+                  <div className="flex items-start space-x-2 max-w-2xl">
+                    <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 mt-1">
+                      <span className="text-xs">AI</span>
+                    </div>
+                    <div className="px-4 py-3 rounded-2xl bg-white border border-gray-200">
+                      <div className="flex space-x-1">
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             
             <div className="border-t border-gray-200 bg-white p-4 flex-shrink-0">
@@ -591,18 +640,24 @@ export default function ReflectionApp() {
                   type="text"
                   value={currentMessage}
                   onChange={(e) => setCurrentMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-                  className="flex-1 px-4 py-3 bg-white border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:border-gray-400 focus:outline-none transition-colors text-sm resize-none"
-                  placeholder="メッセージを入力..."
+                  onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && !isAiTyping && sendMessage()}
+                  disabled={isAiTyping}
+                  className="flex-1 px-4 py-3 bg-white border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:border-gray-400 focus:outline-none transition-colors text-sm resize-none disabled:bg-gray-50 disabled:cursor-not-allowed"
+                  placeholder={isAiTyping ? "AIが回答中..." : "メッセージを入力..."}
                 />
                 <button
                   onClick={sendMessage}
-                  disabled={!currentMessage.trim()}
+                  disabled={!currentMessage.trim() || isAiTyping}
                   className="p-3 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={isAiTyping ? "AIが回答中..." : "送信"}
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                  </svg>
+                  {isAiTyping ? (
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
+                  )}
                 </button>
               </div>
               <div className="mt-2 text-center">
