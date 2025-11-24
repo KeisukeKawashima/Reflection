@@ -26,7 +26,7 @@ const questionTemplates = {
 
 function getSmartFallbackResponse(messageCount: number): string {
   let stage: 'initial' | 'middle' | 'late'
-  
+
   if (messageCount <= 2) {
     stage = 'initial'
   } else if (messageCount <= 4) {
@@ -34,7 +34,7 @@ function getSmartFallbackResponse(messageCount: number): string {
   } else {
     stage = 'late'
   }
-  
+
   const questions = questionTemplates[stage]
   return questions[Math.floor(Math.random() * questions.length)]
 }
@@ -54,9 +54,9 @@ export async function POST(request: NextRequest) {
   // APIキーの確認
   if (!process.env.OPENAI_API_KEY) {
     console.error('OPENAI_API_KEY is not set')
-    return NextResponse.json({ 
+    return NextResponse.json({
       message: 'その背景にはどのような要因があると思いますか？',
-      error: 'API key not configured'
+      error: 'API key not configured',
     })
   }
 
@@ -64,18 +64,18 @@ export async function POST(request: NextRequest) {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       console.log(`Attempt ${attempt + 1}: Calling OpenAI API`)
-      
+
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           model: 'gpt-3.5-turbo',
           messages: [
             { role: 'system', content: systemPrompt },
-            { role: 'user', content: message }
+            { role: 'user', content: message },
           ],
           max_tokens: 150,
           temperature: 0.7,
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
       }
 
       const data = await response.json()
-      
+
       if (data.choices && data.choices[0] && data.choices[0].message) {
         console.log('Successfully got response from OpenAI')
         return NextResponse.json({ message: data.choices[0].message.content })
@@ -113,8 +113,8 @@ export async function POST(request: NextRequest) {
   // フォールバック応答（段階に応じた質問）
   console.log('Using smart fallback response')
   const fallbackMessage = getSmartFallbackResponse(messageCount)
-  return NextResponse.json({ 
+  return NextResponse.json({
     message: fallbackMessage,
-    fallback: true 
+    fallback: true,
   })
 }

@@ -1,447 +1,78 @@
 'use client'
 import { useState, useEffect } from 'react'
-
-interface ReflectionItem {
-  id: string
-  text: string
-  type: 'good' | 'growth'
-  x: number
-  y: number
-}
-
-type ConnectionPoint = 'top' | 'right' | 'bottom' | 'left'
-
-interface Connection {
-  id: string
-  from: string
-  fromPoint: ConnectionPoint
-  to: string
-  toPoint: ConnectionPoint
-  label?: string
-}
-
-interface ChatMessage {
-  id: string
-  text: string
-  sender: 'user' | 'ai'
-}
-
-interface DailyRecord {
-  date: string
-  items: ReflectionItem[]
-  selectedItem: ReflectionItem | null
-  chatMessages: ChatMessage[]
-}
-
-type Step = 'input' | 'select' | 'chat' | 'history'
+import { Step, ReflectionItem } from '@/lib/types'
+import { useReflectionItems } from '@/hooks/useReflectionItems'
+import { useConnections } from '@/hooks/useConnections'
+import { useChatMessages } from '@/hooks/useChatMessages'
+import { useRecords } from '@/hooks/useRecords'
+import { ReflectionBoard } from '@/components/reflection/ReflectionBoard'
+import { TopicSelector } from '@/components/reflection/TopicSelector'
+import { ChatInterface } from '@/components/reflection/ChatInterface'
+import { HistoryView } from '@/components/reflection/HistoryView'
 
 export default function ReflectionApp() {
   const [step, setStep] = useState<Step>('input')
-  const [items, setItems] = useState<ReflectionItem[]>([])
   const [selectedTopic, setSelectedTopic] = useState<ReflectionItem | null>(null)
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
-  const [currentMessage, setCurrentMessage] = useState('')
-  const [records, setRecords] = useState<DailyRecord[]>([])
-  const [searchKeyword, setSearchKeyword] = useState('')
-  const [deletingRecord, setDeletingRecord] = useState<string | null>(null)
-  const [showDeleteModal, setShowDeleteModal] = useState<string | null>(null)
-  const [draggedItem, setDraggedItem] = useState<string | null>(null)
-  const [selectedItem, setSelectedItem] = useState<string | null>(null)
-  const [copiedItem, setCopiedItem] = useState<ReflectionItem | null>(null)
-  const [showWelcome, setShowWelcome] = useState(true)
-  const [isAiTyping, setIsAiTyping] = useState(false)
-  const [connections, setConnections] = useState<Connection[]>([])
-  const [connectingFrom, setConnectingFrom] = useState<{ itemId: string; point: ConnectionPoint } | null>(null)
-  const [connectionPreview, setConnectionPreview] = useState<{ x: number; y: number } | null>(null)
-  const [hoveredPoint, setHoveredPoint] = useState<{ itemId: string; point: ConnectionPoint } | null>(null)
-  const [editingConnection, setEditingConnection] = useState<string | null>(null)
+
+  const {
+    items,
+    setItems,
+    selectedItem,
+    setSelectedItem,
+    copiedItem,
+    setCopiedItem,
+    addItem,
+    updateItem,
+    moveItem,
+    deleteItem,
+    copyItem,
+  } = useReflectionItems()
+
+  const {
+    connections,
+    setConnections,
+    connectingFrom,
+    connectionPreview,
+    hoveredPoint,
+    setHoveredPoint,
+    startConnection,
+    completeConnection,
+    deleteConnection,
+    deleteItemConnections,
+  } = useConnections(items)
+
+  const {
+    chatMessages,
+    setChatMessages,
+    currentMessage,
+    setCurrentMessage,
+    isAiTyping,
+    sendMessage,
+    initializeChat,
+  } = useChatMessages()
+
+  const { records, deletingRecord, saveRecord, deleteRecord } = useRecords()
 
   const today = new Date().toISOString().split('T')[0]
 
-  const loadRecords = async () => {
-    try {
-      const response = await fetch('/api/reflections')
-      const data = await response.json()
-      setRecords(data)
-    } catch (error) {
-      console.error('Failed to load records:', error)
-    }
+  const handleSaveRecord = () => {
+    saveRecord(today, items, selectedItem, chatMessages)
   }
 
-  const saveRecord = async () => {
-    try {
-      await fetch('/api/reflections', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date: today,
-          items: items.filter(item => item.text.trim()),
-          selectedItem,
-          chatMessages
-        })
-      })
-    } catch (error) {
-      console.error('Failed to save record:', error)
-    }
-  }
-
-  const resumeFromHistory = (record: any) => {
-    setItems(record.items || [])
-    setStep('select')
-  }
-
-  const resumeConversation = (record: any) => {
-    setItems(record.items || [])
-    setSelectedItem(record.selectedItem || null)
-    setChatMessages(record.chatMessages || [])
-    setStep('chat')
-  }
-
-  const deleteRecord = async (date: string) => {
-    setShowDeleteModal(null)
-    setDeletingRecord(date)
-    
-    try {
-      await new Promise(resolve => setTimeout(resolve, 800))
-      await fetch(`/api/reflections/${date}`, { method: 'DELETE' })
-      setRecords(records.filter(r => r.date !== date))
-    } catch (error) {
-      console.error('Failed to delete record:', error)
-    } finally {
-      setDeletingRecord(null)
-    }
-  }
-
-  // 検索とフィルタリング
-  const filteredRecords = records.filter(record => {
-    if (!searchKeyword) return true
-    const keyword = searchKeyword.toLowerCase()
-    return (
-      record.items.some((item: any) => item.text.toLowerCase().includes(keyword)) ||
-      (record.selectedItem && record.selectedItem.text.toLowerCase().includes(keyword)) ||
-      record.chatMessages.some((msg: any) => msg.text.toLowerCase().includes(keyword))
-    )
-  })
-
-  // 年月でグループ化
-  const groupedRecords = filteredRecords.reduce((groups: any, record) => {
-    const yearMonth = record.date.substring(0, 7) // YYYY-MM
-    if (!groups[yearMonth]) {
-      groups[yearMonth] = []
-    }
-    groups[yearMonth].push(record)
-    return groups
-  }, {})
-
-  useEffect(() => {
-    loadRecords()
-    
-    // ウェルカムメッセージを3秒後にフェードアウト
-    const timer = setTimeout(() => {
-      setShowWelcome(false)
-    }, 3000)
-    
-    return () => clearTimeout(timer)
-  }, [])
-
-  // 接続線のマウス移動とキャンセル
-  useEffect(() => {
-    if (connectingFrom) {
-      document.addEventListener('mousemove', handleConnectionMouseMove)
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') cancelConnection()
-      }
-      document.addEventListener('keydown', handleKeyDown)
-      return () => {
-        document.removeEventListener('mousemove', handleConnectionMouseMove)
-        document.removeEventListener('keydown', handleKeyDown)
-      }
-    }
-  }, [connectingFrom])
-
-  useEffect(() => {
-    // 全てのtextareaの高さを調整
-    const textareas = document.querySelectorAll('textarea')
-    textareas.forEach(textarea => {
-      if (textarea instanceof HTMLTextAreaElement) {
-        autoResizeTextarea(textarea)
-      }
-    })
-  }, [items])
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // テキスト入力中は無視
-      const target = e.target as HTMLElement
-      if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
-        return
-      }
-
-      // Ctrl/Cmd + C でコピー
-      if ((e.metaKey || e.ctrlKey) && e.key === 'c' && selectedItem) {
-        e.preventDefault()
-        const item = items.find(i => i.id === selectedItem)
-        if (item) {
-          setCopiedItem(item)
-        }
-      }
-      
-      // Ctrl/Cmd + V でペースト
-      if ((e.metaKey || e.ctrlKey) && e.key === 'v' && copiedItem) {
-        e.preventDefault()
-        const newItem: ReflectionItem = {
-          id: Date.now().toString(),
-          text: copiedItem.text,
-          type: copiedItem.type,
-          x: Math.min(copiedItem.x + 20, 600),
-          y: Math.min(copiedItem.y + 20, 480)
-        }
-        setItems([...items, newItem])
-      }
-
-      // Delete/Backspace で削除
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedItem) {
-        e.preventDefault()
-        deleteItem(selectedItem)
-        setSelectedItem(null)
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [selectedItem, copiedItem, items])
-
-  const addItem = (type: 'good' | 'growth') => {
-    const newItem: ReflectionItem = {
-      id: Date.now().toString(),
-      text: '',
-      type,
-      x: Math.random() * 700 + 50,
-      y: Math.random() * 500 + 50
-    }
-    setItems([...items, newItem])
-  }
-
-  const updateItem = (id: string, text: string) => {
-    setItems(items.map(item => item.id === id ? { ...item, text } : item))
-  }
-
-  const autoResizeTextarea = (element: HTMLTextAreaElement) => {
-    element.style.height = '0px'
-    element.style.height = Math.max(element.scrollHeight, 80) + 'px'
-  }
-
-  const moveItem = (id: string, x: number, y: number) => {
-    setItems(items.map(item => item.id === id ? { ...item, x, y } : item))
-  }
-
-  const handleMouseDown = (e: React.MouseEvent, itemId: string) => {
-    setDraggedItem(itemId)
-  }
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!draggedItem) return
-    
-    const rect = e.currentTarget.getBoundingClientRect()
-    const x = e.clientX - rect.left - 96 // 付箋幅の半分
-    const y = e.clientY - rect.top - 56  // 付箋高さの半分
-    
-    moveItem(draggedItem, 
-      Math.max(0, Math.min(x, rect.width - 192)), 
-      Math.max(0, Math.min(y, rect.height - 112))
-    )
-  }
-
-  const handleMouseUp = () => {
-    setDraggedItem(null)
-  }
-
-  // 接続ポイントの座標を取得（DOMから実際の位置を取得）
-  const getPointPosition = (itemId: string, point: ConnectionPoint) => {
-    const item = items.find(i => i.id === itemId)
-    if (!item) return { x: 0, y: 0 }
-
-    // DOMから接続ポイントの実際の位置を取得
-    const dotElement = document.querySelector(`[data-connection-point="${itemId}-${point}"]`) as HTMLElement
-    const boardElement = document.querySelector('[data-board]') as HTMLElement
-    
-    if (dotElement && boardElement) {
-      const dotRect = dotElement.getBoundingClientRect()
-      const boardRect = boardElement.getBoundingClientRect()
-      
-      // ボード内での相対座標を計算
-      return {
-        x: dotRect.left - boardRect.left + dotRect.width / 2,
-        y: dotRect.top - boardRect.top + dotRect.height / 2
-      }
-    }
-
-    // フォールバック: 計算で求める
-    const width = 224
-    const element = document.querySelector(`[data-item-id="${itemId}"]`) as HTMLElement
-    const height = element?.offsetHeight || 112
-    const centerX = item.x + width / 2
-    const centerY = item.y + height / 2
-    
-    switch (point) {
-      case 'top': return { x: centerX, y: item.y }
-      case 'right': return { x: item.x + width, y: centerY }
-      case 'bottom': return { x: centerX, y: item.y + height }
-      case 'left': return { x: item.x, y: centerY }
-    }
-  }
-
-  const deleteItem = (id: string) => {
-    setItems(items.filter(item => item.id !== id))
-    // 関連する接続も削除
-    setConnections(connections.filter(conn => conn.from !== id && conn.to !== id))
-  }
-
-  const startConnection = (e: React.MouseEvent, itemId: string, point: ConnectionPoint) => {
-    e.stopPropagation()
-    e.preventDefault()
-    setConnectingFrom({ itemId, point })
-    const pos = getPointPosition(itemId, point)
-    setConnectionPreview(pos)
-  }
-
-  const completeConnection = (toId: string, toPoint: ConnectionPoint) => {
-    if (connectingFrom && connectingFrom.itemId !== toId) {
-      const newConnection: Connection = {
-        id: Date.now().toString(),
-        from: connectingFrom.itemId,
-        fromPoint: connectingFrom.point,
-        to: toId,
-        toPoint: toPoint
-      }
-      setConnections([...connections, newConnection])
-    }
-    setConnectingFrom(null)
-    setConnectionPreview(null)
-  }
-
-  const deleteConnection = (connectionId: string) => {
-    setConnections(connections.filter(conn => conn.id !== connectionId))
-    setEditingConnection(null)
-  }
-
-  const handleConnectionMouseMove = (e: MouseEvent) => {
-    if (connectingFrom) {
-      // ヘッダーの高さ（73px）を引いてSVG座標に変換
-      setConnectionPreview({ x: e.clientX, y: e.clientY - 73 })
-    }
-  }
-
-  const cancelConnection = () => {
-    setConnectingFrom(null)
-    setConnectionPreview(null)
-  }
-
-  const copyItem = (id: string) => {
-    const item = items.find(i => i.id === id)
-    if (!item) return
-    
-    const newItem: ReflectionItem = {
-      id: Date.now().toString(),
-      text: item.text,
-      type: item.type,
-      x: item.x + 20,
-      y: item.y + 20
-    }
-    setItems([...items, newItem])
-  }
-
-  // 矢印の座標を計算（Miroスタイル - ポイント間接続）
-  const getConnectionPath = (conn: Connection) => {
-    const start = getPointPosition(conn.from, conn.fromPoint)
-    const end = getPointPosition(conn.to, conn.toPoint)
-
-    const dx = end.x - start.x
-    const dy = end.y - start.y
-    
-    // 直角に曲がる線（Miroスタイル）
-    if (Math.abs(dx) > Math.abs(dy)) {
-      // 横方向が主
-      const midX = start.x + dx / 2
-      return `M ${start.x} ${start.y} L ${midX} ${start.y} L ${midX} ${end.y} L ${end.x} ${end.y}`
-    } else {
-      // 縦方向が主
-      const midY = start.y + dy / 2
-      return `M ${start.x} ${start.y} L ${start.x} ${midY} L ${end.x} ${midY} L ${end.x} ${end.y}`
-    }
+  const handleDeleteItem = (id: string) => {
+    deleteItem(id)
+    deleteItemConnections(id)
   }
 
   const selectItemForReflection = (item: ReflectionItem) => {
     setSelectedTopic(item)
     setStep('chat')
-    
-    const initialMessage: ChatMessage = {
-      id: Date.now().toString(),
-      text: `「${item.text}」について振り返りたいのですね。なぜこの点について深く考えたいと思ったのでしょうか？`,
-      sender: 'ai'
-    }
-    setChatMessages([initialMessage])
-    setTimeout(() => saveRecord(), 100)
+    initializeChat(item)
+    setTimeout(handleSaveRecord, 100)
   }
 
-  const sendMessage = async () => {
-    if (!currentMessage.trim() || isAiTyping) return
-
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      text: currentMessage,
-      sender: 'user'
-    }
-
-    setChatMessages(prev => {
-      const newMessages = [...prev, userMessage]
-      setTimeout(() => saveRecord(), 50)
-      return newMessages
-    })
-    
-    const messageCount = chatMessages.length
-    const messageText = currentMessage
-    setCurrentMessage('')
-    setIsAiTyping(true)
-
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: messageText,
-          selectedTopic: selectedTopic?.text,
-          messageCount
-        })
-      })
-
-      const data = await response.json()
-      
-      const aiMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        text: data.message,
-        sender: 'ai'
-      }
-      
-      setChatMessages(prev => {
-        const newMessages = [...prev, aiMessage]
-        setTimeout(() => saveRecord(), 100)
-        return newMessages
-      })
-    } catch (error) {
-      const fallbackMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        text: 'その視点は興味深いですね。もう少し詳しく教えてください。',
-        sender: 'ai'
-      }
-      setChatMessages(prev => {
-        const newMessages = [...prev, fallbackMessage]
-        setTimeout(() => saveRecord(), 100)
-        return newMessages
-      })
-    } finally {
-      setIsAiTyping(false)
-    }
+  const handleSendMessage = () => {
+    sendMessage(selectedTopic, handleSaveRecord)
   }
 
   const goToNextStep = () => {
@@ -465,654 +96,169 @@ export default function ReflectionApp() {
     }
   }
 
+  const resumeFromHistory = (record: any) => {
+    setItems(record.items || [])
+    setStep('select')
+  }
+
+  const resumeConversation = (record: any) => {
+    setItems(record.items || [])
+    setSelectedItem(record.selectedItem || null)
+    setChatMessages(record.chatMessages || [])
+    setStep('chat')
+  }
+
+  const resetApp = () => {
+    setStep('input')
+    setItems([])
+    setSelectedItem(null)
+    setChatMessages([])
+    setConnections([])
+    setSelectedTopic(null)
+  }
+
+  // キーボードショートカット
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement
+      if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
+        return
+      }
+
+      if ((e.metaKey || e.ctrlKey) && e.key === 'c' && selectedItem) {
+        e.preventDefault()
+        const item = items.find(i => i.id === selectedItem)
+        if (item) {
+          setCopiedItem(item)
+        }
+      }
+
+      if ((e.metaKey || e.ctrlKey) && e.key === 'v' && copiedItem) {
+        e.preventDefault()
+        const newItem: ReflectionItem = {
+          id: Date.now().toString(),
+          text: copiedItem.text,
+          type: copiedItem.type,
+          x: Math.min(copiedItem.x + 20, 600),
+          y: Math.min(copiedItem.y + 20, 480),
+        }
+        setItems([...items, newItem])
+      }
+
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedItem) {
+        e.preventDefault()
+        handleDeleteItem(selectedItem)
+        setSelectedItem(null)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [selectedItem, copiedItem, items])
+
   return (
     <div className="min-h-screen bg-white">
-      <div className="max-w-full mx-auto">
-        <div className="border-b border-gray-200 bg-white/80 backdrop-blur-sm sticky top-0 z-20">
-          <div className="flex justify-between items-center px-4 py-3 max-w-7xl mx-auto">
+      <div className="mx-auto max-w-full">
+        <div className="sticky top-0 z-20 border-b border-gray-200 bg-white/80 backdrop-blur-sm">
+          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
             <div className="flex items-center space-x-4">
-              <h1 
-                className="text-lg font-medium text-gray-900 cursor-pointer hover:text-gray-700 transition-colors"
-                onClick={() => {
-                  setStep('input')
-                  setItems([])
-                  setSelectedItem(null)
-                  setChatMessages([])
-                }}
+              <h1
+                className="cursor-pointer text-lg font-medium text-gray-900 transition-colors hover:text-gray-700"
+                onClick={resetApp}
               >
                 今日の振り返り
               </h1>
               <span className="text-xs text-gray-400">
-                {new Date().toLocaleDateString('ja-JP', { 
-                  month: 'short', 
-                  day: 'numeric'
+                {new Date().toLocaleDateString('ja-JP', {
+                  month: 'short',
+                  day: 'numeric',
                 })}
               </span>
             </div>
             <div className="flex items-center space-x-2">
               <button
                 onClick={() => setStep('history')}
-                className="p-2 text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+                className="rounded-md p-2 text-gray-600 transition-colors hover:bg-gray-100"
                 title="履歴"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
                 </svg>
               </button>
               {step !== 'input' && (
                 <button
-                  onClick={() => {
-                    setStep('input')
-                    setItems([])
-                    setSelectedItem(null)
-                    setChatMessages([])
-                  }}
-                  className="p-2 text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+                  onClick={resetApp}
+                  className="rounded-md p-2 text-gray-600 transition-colors hover:bg-gray-100"
                   title="新しく始める"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 4v16m8-8H4"
+                    />
                   </svg>
                 </button>
               )}
             </div>
           </div>
         </div>
-        
+
         <div className="px-6 py-8">
+          {step === 'input' && (
+            <ReflectionBoard
+              items={items}
+              selectedItem={selectedItem}
+              connections={connections}
+              connectingFrom={connectingFrom}
+              connectionPreview={connectionPreview}
+              hoveredPoint={hoveredPoint}
+              onAddItem={addItem}
+              onUpdateItem={updateItem}
+              onMoveItem={moveItem}
+              onDeleteItem={handleDeleteItem}
+              onSelectItem={setSelectedItem}
+              onStartConnection={startConnection}
+              onCompleteConnection={completeConnection}
+              onDeleteConnection={deleteConnection}
+              onHoverPoint={setHoveredPoint}
+              onNext={goToNextStep}
+            />
+          )}
 
-        {step === 'input' && (
-          <div>
-            {/* ツールバー - 左中央固定 */}
-            <div className="fixed left-6 top-1/2 transform -translate-y-1/2 z-20 flex flex-col space-y-2">
-              <button 
-                onClick={() => addItem('good')}
-                className="group flex items-center px-4 py-3 bg-white hover:bg-gray-50 rounded-xl transition-all shadow-md hover:shadow-lg border border-gray-200"
-                title="良かったこと"
-              >
-                <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center mr-3 group-hover:bg-green-200 transition-colors">
-                  <svg className="w-4 h-4 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                </div>
-                <span className="text-sm font-medium text-gray-700">良かったこと</span>
-              </button>
-              <button 
-                onClick={() => addItem('growth')}
-                className="group flex items-center px-4 py-3 bg-white hover:bg-gray-50 rounded-xl transition-all shadow-md hover:shadow-lg border border-gray-200"
-                title="改善したいこと"
-              >
-                <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center mr-3 group-hover:bg-blue-200 transition-colors">
-                  <svg className="w-4 h-4 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                </div>
-                <span className="text-sm font-medium text-gray-700">改善したいこと</span>
-              </button>
-            </div>
-            
-            {/* ボード */}
-            <div 
-              data-board
-              className="fixed inset-0 top-[73px] bg-gray-50 overflow-hidden"
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
-            >
-              {/* 接続線（SVG） */}
-              <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
-                <defs>
-                  <marker
-                    id="arrowhead"
-                    markerWidth="8"
-                    markerHeight="8"
-                    refX="7"
-                    refY="4"
-                    orient="auto"
-                  >
-                    <path d="M 0 0 L 8 4 L 0 8 z" fill="#2563eb" />
-                  </marker>
-                  <marker
-                    id="arrowhead-hover"
-                    markerWidth="8"
-                    markerHeight="8"
-                    refX="7"
-                    refY="4"
-                    orient="auto"
-                  >
-                    <path d="M 0 0 L 8 4 L 0 8 z" fill="#ef4444" />
-                  </marker>
-                </defs>
-                {connections.map(conn => (
-                  <g key={conn.id} className="pointer-events-auto cursor-pointer group/conn" onClick={() => deleteConnection(conn.id)}>
-                    {/* 太い透明な線（クリック領域を広げる） */}
-                    <path
-                      d={getConnectionPath(conn)}
-                      stroke="transparent"
-                      strokeWidth="12"
-                      fill="none"
-                    />
-                    {/* 実際の線 */}
-                    <path
-                      d={getConnectionPath(conn)}
-                      stroke="#2563eb"
-                      strokeWidth="2"
-                      fill="none"
-                      markerEnd="url(#arrowhead)"
-                      className="group-hover/conn:stroke-red-500 transition-colors"
-                    />
-                  </g>
-                ))}
-                {/* 接続中のプレビュー線 */}
-                {connectingFrom && connectionPreview && (
-                  <line
-                    x1={getPointPosition(connectingFrom.itemId, connectingFrom.point).x}
-                    y1={getPointPosition(connectingFrom.itemId, connectingFrom.point).y}
-                    x2={connectionPreview.x}
-                    y2={connectionPreview.y}
-                    stroke="#3b82f6"
-                    strokeWidth="2"
-                    strokeDasharray="8,4"
-                    className="pointer-events-none"
-                  />
-                )}
-              </svg>
+          {step === 'select' && (
+            <TopicSelector items={items} onSelectTopic={selectItemForReflection} onBack={goBack} />
+          )}
 
-              {/* ウェルカムメッセージ */}
-              {showWelcome && items.length === 0 && (
-                <div className={`absolute inset-0 flex items-center justify-center bg-gray-50 z-30 transition-opacity duration-1000 ${
-                  showWelcome ? 'opacity-100' : 'opacity-0'
-                }`}>
-                  <div className="text-center animate-fade-in">
-                    <p className="text-2xl text-gray-700 font-light">
-                      今日を振り返り問題発見して生きましょう
-                    </p>
-                  </div>
-                </div>
-              )}
+          {step === 'chat' && selectedTopic && (
+            <ChatInterface
+              selectedTopic={selectedTopic}
+              chatMessages={chatMessages}
+              currentMessage={currentMessage}
+              isAiTyping={isAiTyping}
+              onMessageChange={setCurrentMessage}
+              onSendMessage={handleSendMessage}
+              onBack={goBack}
+            />
+          )}
 
-              {/* 付箋 */}
-              {items.map(item => (
-                <div
-                  key={item.id}
-                  data-item-id={item.id}
-                  className={`group/item absolute w-56 p-4 rounded-lg cursor-move select-none border-2 ${
-                    item.type === 'good' 
-                      ? 'bg-green-100 text-gray-900 border-green-300' 
-                      : 'bg-blue-100 text-gray-900 border-blue-300'
-                  } ${draggedItem === item.id ? 'shadow-2xl z-50' : 'shadow-md hover:shadow-lg transition-all'} ${
-                    selectedItem === item.id ? 'ring-2 ring-blue-500 ring-offset-2' : ''
-                  } ${connectingFrom?.itemId === item.id ? 'ring-2 ring-blue-500 ring-offset-2' : ''}`}
-                  style={{ left: item.x, top: item.y }}
-                  onMouseDown={(e) => {
-                    // 接続ドット以外でドラッグ開始
-                    if (!(e.target as HTMLElement).classList.contains('connection-dot')) {
-                      handleMouseDown(e, item.id)
-                    }
-                  }}
-                  onClick={(e) => {
-                    if (!connectingFrom) {
-                      setSelectedItem(item.id)
-                    }
-                  }}
-                >
-                  {/* 接続ポイント（Miroスタイル - 4方向） */}
-                  {(['top', 'right', 'bottom', 'left'] as ConnectionPoint[]).map(point => {
-                    const isHovered = hoveredPoint?.itemId === item.id && hoveredPoint?.point === point
-                    const isConnected = connections.some(c => 
-                      (c.from === item.id && c.fromPoint === point) || 
-                      (c.to === item.id && c.toPoint === point)
-                    )
-                    const positionClass = {
-                      top: 'left-1/2 -top-2 -translate-x-1/2',
-                      right: '-right-2 top-1/2 -translate-y-1/2',
-                      bottom: 'left-1/2 -bottom-2 -translate-x-1/2',
-                      left: '-left-2 top-1/2 -translate-y-1/2'
-                    }[point]
-
-                    return (
-                      <div
-                        key={point}
-                        data-connection-point={`${item.id}-${point}`}
-                        className={`connection-dot absolute transform w-3 h-3 bg-white border-2 border-blue-500 rounded-full transition-all cursor-pointer z-20 ${positionClass} ${
-                          isConnected ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100'
-                        } ${isHovered || (connectingFrom && hoveredPoint?.itemId === item.id && hoveredPoint?.point === point) ? 'scale-150 bg-blue-500' : ''}`}
-                        onMouseDown={(e) => {
-                          e.stopPropagation()
-                        }}
-                        onMouseEnter={() => {
-                          if (connectingFrom) {
-                            setHoveredPoint({ itemId: item.id, point })
-                          }
-                        }}
-                        onMouseLeave={() => setHoveredPoint(null)}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (connectingFrom) {
-                            if (connectingFrom.itemId !== item.id) {
-                              completeConnection(item.id, point)
-                            }
-                          } else {
-                            startConnection(e, item.id, point)
-                          }
-                        }}
-                      />
-                    )
-                  })}
-                  
-                  <div className="flex items-start justify-between mb-2">
-                    <span className={`text-xs font-medium ${
-                      item.type === 'good' ? 'text-green-700' : 'text-blue-700'
-                    }`}>
-                      {item.type === 'good' ? '✓ 良かったこと' : '→ 改善したいこと'}
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        deleteItem(item.id)
-                      }}
-                      className="opacity-0 group-hover:opacity-100 w-5 h-5 text-gray-400 hover:text-red-600 transition-all flex items-center justify-center rounded hover:bg-red-50"
-                      title="削除 (Delete)"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                  <textarea
-                    value={item.text}
-                    onChange={(e) => {
-                      updateItem(item.id, e.target.value)
-                      setTimeout(() => autoResizeTextarea(e.target), 0)
-                    }}
-                    className="w-full bg-transparent resize-none border-none outline-none text-sm placeholder-gray-400 block break-words"
-                    placeholder="入力してください..."
-                    onMouseDown={(e) => e.stopPropagation()}
-                    style={{ 
-                      wordWrap: 'break-word',
-                      whiteSpace: 'pre-wrap',
-                      overflowWrap: 'break-word',
-                      overflow: 'hidden'
-                    }}
-                  />
-                </div>
-              ))}
-
-              {/* 空の状態（ウェルカムメッセージが消えた後） */}
-              {items.length === 0 && !showWelcome && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="text-center text-gray-300">
-                    <p className="text-base mb-2">付箋を追加して始めましょう</p>
-                    <p className="text-xs text-gray-400">左のボタンから追加できます</p>
-                  </div>
-                </div>
-              )}
-
-              {/* ヘルプテキスト */}
-              {items.length > 0 && (
-                <div className="fixed bottom-6 left-6 z-10 text-xs text-gray-400 bg-white/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-200">
-                  <p>💡 ホバーして青いドットをドラッグで接続 | Delete で削除 | Ctrl+C/V でコピー</p>
-                </div>
-              )}
-              
-              {/* 接続中のヒント */}
-              {connectingFrom && (
-                <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-20 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg text-sm">
-                  接続先の付箋をクリック | Escでキャンセル
-                </div>
-              )}
-            </div>
-
-            {/* 次へ進むボタン - 右下固定 */}
-            {items.filter(item => item.text.trim()).length > 0 && (
-              <div className="fixed bottom-6 right-6 z-20">
-                <button
-                  onClick={goToNextStep}
-                  className="flex items-center px-6 py-3 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-all font-medium shadow-lg hover:shadow-xl text-sm"
-                >
-                  次へ進む
-                  <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {step === 'select' && (
-          <div className="max-w-2xl mx-auto space-y-6">
-            <div className="text-center mb-8">
-              <h2 className="text-xl font-medium text-gray-900 mb-2">どれについて深く考えてみますか？</h2>
-              <p className="text-sm text-gray-500">一つ選んでAIと対話してみましょう</p>
-            </div>
-            
-            <div className="space-y-2">
-              {items.filter(item => item.text.trim()).map(item => (
-                <div
-                  key={item.id}
-                  onClick={() => selectItemForReflection(item)}
-                  className="cursor-pointer bg-white border border-gray-200 hover:bg-gray-50 rounded-xl p-4 transition-all group"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 mr-4">
-                      <div className="flex items-center mb-1">
-                        <span className={`text-xs font-medium mr-2 ${
-                          item.type === 'good' ? 'text-green-600' : 'text-blue-600'
-                        }`}>
-                          {item.type === 'good' ? '✓' : '→'}
-                        </span>
-                        <span className="text-xs text-gray-500">
-                          {item.type === 'good' ? '良かったこと' : '改善したいこと'}
-                        </span>
-                      </div>
-                      <p className="text-gray-900 text-sm">{item.text}</p>
-                    </div>
-                    <svg className="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="text-center pt-4">
-              <button
-                onClick={goBack}
-                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                ← 戻る
-              </button>
-            </div>
-          </div>
-        )}
-
-        {step === 'chat' && selectedTopic && (
-          <div className="max-w-3xl mx-auto h-[calc(100vh-120px)] flex flex-col">
-            <div className="bg-white/80 backdrop-blur-sm border-b border-gray-200 p-4 flex-shrink-0">
-              <div className="flex items-center text-sm text-gray-600">
-                <span className={`mr-2 ${selectedTopic.type === 'good' ? 'text-green-600' : 'text-blue-600'}`}>
-                  {selectedTopic.type === 'good' ? '✓' : '→'}
-                </span>
-                <span className="text-gray-900 font-medium">{selectedTopic.text}</span>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {chatMessages.map(message => (
-                <div
-                  key={message.id}
-                  className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div className="flex items-start space-x-2 max-w-2xl">
-                    {message.sender === 'ai' && (
-                      <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 mt-1">
-                        <span className="text-xs">AI</span>
-                      </div>
-                    )}
-                    <div
-                      className={`px-4 py-3 rounded-2xl text-sm ${
-                        message.sender === 'user'
-                          ? 'bg-gray-900 text-white'
-                          : 'bg-white border border-gray-200 text-gray-900'
-                      }`}
-                    >
-                      {message.text}
-                    </div>
-                  </div>
-                </div>
-              ))}
-              
-              {/* AIタイピングインジケーター */}
-              {isAiTyping && (
-                <div className="flex justify-start">
-                  <div className="flex items-start space-x-2 max-w-2xl">
-                    <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 mt-1">
-                      <span className="text-xs">AI</span>
-                    </div>
-                    <div className="px-4 py-3 rounded-2xl bg-white border border-gray-200">
-                      <div className="flex space-x-1">
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-            
-            <div className="border-t border-gray-200 bg-white p-4 flex-shrink-0">
-              <div className="flex items-end space-x-2">
-                <input
-                  type="text"
-                  value={currentMessage}
-                  onChange={(e) => setCurrentMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && !isAiTyping && sendMessage()}
-                  disabled={isAiTyping}
-                  className="flex-1 px-4 py-3 bg-white border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:border-gray-400 focus:outline-none transition-colors text-sm resize-none disabled:bg-gray-50 disabled:cursor-not-allowed"
-                  placeholder={isAiTyping ? "AIが回答中..." : "メッセージを入力..."}
-                />
-                <button
-                  onClick={sendMessage}
-                  disabled={!currentMessage.trim() || isAiTyping}
-                  className="p-3 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={isAiTyping ? "AIが回答中..." : "送信"}
-                >
-                  {isAiTyping ? (
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  ) : (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                    </svg>
-                  )}
-                </button>
-              </div>
-              <div className="mt-2 text-center">
-                <button
-                  onClick={goBack}
-                  className="text-xs text-gray-500 hover:text-gray-700 transition-colors"
-                >
-                  ← トピック選択に戻る
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {step === 'history' && (
-          <div className="space-y-6">
-            <div className="text-center mb-6">
-              <h2 className="text-2xl font-semibold text-gray-800 mb-2">過去の振り返り</h2>
-              <p className="text-gray-600 mb-6">これまでの記録を見返してみましょう</p>
-              
-              {/* 検索バー */}
-              <div className="max-w-md mx-auto">
-                <input
-                  type="text"
-                  value={searchKeyword}
-                  onChange={(e) => setSearchKeyword(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:border-gray-400 focus:outline-none transition-colors text-sm"
-                  placeholder="記録を検索..."
-                />
-              </div>
-            </div>
-
-            {Object.keys(groupedRecords).length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-gray-500">
-                  {searchKeyword ? '検索結果が見つかりません' : 'まだ記録がありません'}
-                </p>
-              </div>
-            ) : (
-              Object.keys(groupedRecords)
-                .sort((a, b) => b.localeCompare(a))
-                .map(yearMonth => (
-                  <div key={yearMonth} className="space-y-3">
-                    <h3 className="text-base font-semibold text-gray-700 border-b border-gray-200 pb-2">
-                      {new Date(yearMonth + '-01').toLocaleDateString('ja-JP', { 
-                        year: 'numeric', 
-                        month: 'long' 
-                      })}
-                    </h3>
-                    
-                    {groupedRecords[yearMonth]
-                      .sort((a: any, b: any) => b.date.localeCompare(a.date))
-                      .map((record: any) => (
-                        <div key={record.date} className={`bg-white p-5 rounded-lg border border-gray-200 ml-4 transition-all duration-800 ${
-                          deletingRecord === record.date 
-                            ? 'opacity-0 scale-95 transform translate-x-full' 
-                            : 'opacity-100 scale-100'
-                        }`}>
-                          <div className="flex justify-between items-center mb-4">
-                            <h4 className="text-sm font-medium text-gray-800">
-                              {new Date(record.date).toLocaleDateString('ja-JP', { 
-                                month: 'short', 
-                                day: 'numeric',
-                                weekday: 'short'
-                              })}
-                            </h4>
-                            <div className="flex items-center space-x-2">
-                              <button
-                                onClick={() => resumeFromHistory(record)}
-                                disabled={deletingRecord === record.date}
-                                className="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-1 rounded-md text-xs hover:bg-blue-100 transition-colors disabled:opacity-50"
-                              >
-                                振り返りを再開
-                              </button>
-                              {record.selectedItem && record.chatMessages && record.chatMessages.length > 1 && (
-                                <button
-                                  onClick={() => resumeConversation(record)}
-                                  disabled={deletingRecord === record.date}
-                                  className="bg-gray-50 border border-gray-200 text-gray-700 px-3 py-1 rounded-md text-xs hover:bg-gray-100 transition-colors disabled:opacity-50"
-                                >
-                                  会話を再開
-                                </button>
-                              )}
-                              <button
-                                onClick={() => setShowDeleteModal(record.date)}
-                                disabled={deletingRecord === record.date}
-                                className="group relative bg-red-50 border border-red-200 text-red-600 px-3 py-1 rounded-md text-xs hover:bg-red-100 transition-colors disabled:opacity-50"
-                                title="削除"
-                              >
-                                {deletingRecord === record.date ? (
-                                  <span className="flex items-center text-xs">
-                                    <div className="w-3 h-3 border border-red-600 border-t-transparent rounded-full animate-spin mr-1"></div>
-                                    削除中...
-                                  </span>
-                                ) : (
-                                  <>
-                                    <span className="group-hover:hidden">🗑️</span>
-                                    <span className="hidden group-hover:inline">削除</span>
-                                  </>
-                                )}
-                              </button>
-                            </div>
-                          </div>
-                          
-                          <div className="grid md:grid-cols-2 gap-4 mb-4">
-                            <div>
-                              <h5 className="font-medium text-green-700 mb-2 text-xs">良かったこと</h5>
-                              {(record.items || []).filter((item: any) => item.type === 'good').map((item: any) => (
-                                <p key={item.id} className="text-xs bg-green-50 border border-green-200 text-gray-700 p-2 rounded mb-1">
-                                  {searchKeyword && item.text.toLowerCase().includes(searchKeyword.toLowerCase()) ? (
-                                    <span dangerouslySetInnerHTML={{
-                                      __html: item.text.replace(
-                                        new RegExp(`(${searchKeyword})`, 'gi'),
-                                        '<mark class="bg-yellow-200 text-gray-900">$1</mark>'
-                                      )
-                                    }} />
-                                  ) : (
-                                    item.text
-                                  )}
-                                </p>
-                              ))}
-                            </div>
-                            <div>
-                              <h5 className="font-medium text-blue-700 mb-2 text-xs">改善したいこと</h5>
-                              {(record.items || []).filter((item: any) => item.type === 'growth').map((item: any) => (
-                                <p key={item.id} className="text-xs bg-blue-50 border border-blue-200 text-gray-700 p-2 rounded mb-1">
-                                  {searchKeyword && item.text.toLowerCase().includes(searchKeyword.toLowerCase()) ? (
-                                    <span dangerouslySetInnerHTML={{
-                                      __html: item.text.replace(
-                                        new RegExp(`(${searchKeyword})`, 'gi'),
-                                        '<mark class="bg-yellow-200 text-gray-900">$1</mark>'
-                                      )
-                                    }} />
-                                  ) : (
-                                    item.text
-                                  )}
-                                </p>
-                              ))}
-                            </div>
-                          </div>
-
-                          {record.selectedItem && (
-                            <div className="border-t border-gray-200 pt-4">
-                              <h5 className="font-medium text-gray-700 mb-2 text-xs">選択したトピック</h5>
-                              <p className="text-xs bg-gray-50 text-gray-700 p-2 rounded border border-gray-200 mb-3">
-                                {searchKeyword && record.selectedItem.text.toLowerCase().includes(searchKeyword.toLowerCase()) ? (
-                                  <span dangerouslySetInnerHTML={{
-                                    __html: record.selectedItem.text.replace(
-                                      new RegExp(`(${searchKeyword})`, 'gi'),
-                                      '<mark class="bg-yellow-200 text-gray-900">$1</mark>'
-                                    )
-                                  }} />
-                                ) : (
-                                  record.selectedItem.text
-                                )}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                  </div>
-                ))
-            )}
-          </div>
-        )}
+          {step === 'history' && (
+            <HistoryView
+              records={records}
+              deletingRecord={deletingRecord}
+              onResumeFromHistory={resumeFromHistory}
+              onResumeConversation={resumeConversation}
+              onDeleteRecord={deleteRecord}
+            />
+          )}
         </div>
       </div>
-
-      {/* 削除確認モーダル */}
-      {showDeleteModal && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
-            <div className="text-center">
-              <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-xl">🗑️</span>
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">記録の削除</h3>
-              <p className="text-gray-600 mb-2 text-sm">
-                {new Date(showDeleteModal).toLocaleDateString('ja-JP', { 
-                  year: 'numeric',
-                  month: 'long', 
-                  day: 'numeric',
-                  weekday: 'long'
-                })}
-              </p>
-              <p className="text-gray-700 mb-6 text-sm">
-                この日の記録を削除しますか？<br />
-                <span className="text-red-600">削除すると元に戻せません</span>
-              </p>
-              <div className="flex space-x-3">
-                <button
-                  onClick={() => setShowDeleteModal(null)}
-                  className="flex-1 px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
-                >
-                  キャンセル
-                </button>
-                <button
-                  onClick={() => deleteRecord(showDeleteModal)}
-                  className="flex-1 px-4 py-2.5 bg-red-600 rounded-lg text-white hover:bg-red-700 transition-colors font-medium"
-                >
-                  削除する
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
