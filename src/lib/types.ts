@@ -1,7 +1,7 @@
 export interface ReflectionItem {
   id: string
   text: string
-  type: 'good' | 'growth'
+  type: 'good' | 'growth' | 'insight'
   x: number
   y: number
 }

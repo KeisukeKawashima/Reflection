@@ -35,7 +35,7 @@ export function StickyNote({
   onCompleteConnection,
   onHoverPoint,
 }: StickyNoteProps) {
-  const colors = item.type === 'good' ? COLORS.GOOD : COLORS.GROWTH
+  const colors = item.type === 'good' ? COLORS.GOOD : item.type === 'growth' ? COLORS.GROWTH : COLORS.INSIGHT
 
   const getPositionClass = (point: ConnectionPoint) =>
     ({
@@ -93,7 +93,7 @@ export function StickyNote({
 
       <div className="mb-2 flex items-start justify-between">
         <span className={`text-xs font-medium ${colors.text}`}>
-          {item.type === 'good' ? '✓ 良かったこと' : '→ 改善したいこと'}
+          {item.type === 'good' ? '✓ 良かったこと' : item.type === 'growth' ? '→ 改善したいこと' : '💡 今日の気づき'}
         </span>
         <button
           onClick={e => {

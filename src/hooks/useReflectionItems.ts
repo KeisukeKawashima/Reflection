@@ -6,7 +6,7 @@ export function useReflectionItems() {
   const [selectedItem, setSelectedItem] = useState<string | null>(null)
   const [copiedItem, setCopiedItem] = useState<ReflectionItem | null>(null)
 
-  const addItem = useCallback((type: 'good' | 'growth') => {
+  const addItem = useCallback((type: 'good' | 'growth' | 'insight') => {
     const newItem: ReflectionItem = {
       id: Date.now().toString(),
       text: '',

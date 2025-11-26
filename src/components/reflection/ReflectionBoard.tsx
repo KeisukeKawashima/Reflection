@@ -13,7 +13,7 @@ interface ReflectionBoardProps {
   connectingFrom: any
   connectionPreview: any
   hoveredPoint: any
-  onAddItem: (type: 'good' | 'growth') => void
+  onAddItem: (type: 'good' | 'growth' | 'insight') => void
   onUpdateItem: (id: string, text: string) => void
   onMoveItem: (id: string, x: number, y: number) => void
   onDeleteItem: (id: string) => void
@@ -91,7 +91,11 @@ export function ReflectionBoard({
 
   return (
     <div>
-      <Toolbar onAddGood={() => onAddItem('good')} onAddGrowth={() => onAddItem('growth')} />
+      <Toolbar 
+        onAddGood={() => onAddItem('good')} 
+        onAddGrowth={() => onAddItem('growth')}
+        onAddInsight={() => onAddItem('insight')}
+      />
 
       <div
         data-board

@@ -28,4 +28,10 @@ export const COLORS = {
     text: 'text-blue-700',
     hover: 'hover:bg-blue-200',
   },
+  INSIGHT: {
+    bg: 'bg-yellow-100',
+    border: 'border-yellow-300',
+    text: 'text-yellow-700',
+    hover: 'hover:bg-yellow-200',
+  },
 } as const
