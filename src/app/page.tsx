@@ -47,6 +47,7 @@ export default function ReflectionApp() {
     currentMessage,
     setCurrentMessage,
     isAiTyping,
+    aiStatus,
     sendMessage,
     initializeChat,
   } = useChatMessages()
@@ -242,6 +243,7 @@ export default function ReflectionApp() {
               chatMessages={chatMessages}
               currentMessage={currentMessage}
               isAiTyping={isAiTyping}
+              aiStatus={aiStatus}
               onMessageChange={setCurrentMessage}
               onSendMessage={handleSendMessage}
               onBack={goBack}

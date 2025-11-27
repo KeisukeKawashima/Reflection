@@ -5,6 +5,7 @@ export function useChatMessages() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [currentMessage, setCurrentMessage] = useState('')
   const [isAiTyping, setIsAiTyping] = useState(false)
+  const [aiStatus, setAiStatus] = useState('')
 
   const sendMessage = useCallback(
     async (selectedTopic: ReflectionItem | null, onSave: () => void) => {
@@ -22,10 +23,10 @@ export function useChatMessages() {
         return newMessages
       })
 
-      const messageCount = chatMessages.length
       const messageText = currentMessage
       setCurrentMessage('')
       setIsAiTyping(true)
+      setAiStatus('AIに問い合わせ中...')
 
       try {
         const response = await fetch('/api/chat', {
@@ -34,11 +35,18 @@ export function useChatMessages() {
           body: JSON.stringify({
             message: messageText,
             selectedTopic: selectedTopic?.text,
-            messageCount,
+            conversationHistory: chatMessages,
           }),
         })
 
         const data = await response.json()
+
+        if (data.error) {
+          setAiStatus('エラーが発生しました')
+          console.error('API Error:', data.error, 'Source:', data.source)
+        } else {
+          console.log('AI Response source:', data.source)
+        }
 
         const aiMessage: ChatMessage = {
           id: (Date.now() + 1).toString(),
@@ -52,6 +60,7 @@ export function useChatMessages() {
           return newMessages
         })
       } catch (error) {
+        setAiStatus('接続エラー')
         const fallbackMessage: ChatMessage = {
           id: (Date.now() + 1).toString(),
           text: 'その視点は興味深いですね。もう少し詳しく教えてください。',
@@ -64,6 +73,7 @@ export function useChatMessages() {
         })
       } finally {
         setIsAiTyping(false)
+        setAiStatus('')
       }
     },
     [currentMessage, isAiTyping, chatMessages.length]
@@ -84,6 +94,7 @@ export function useChatMessages() {
     currentMessage,
     setCurrentMessage,
     isAiTyping,
+    aiStatus,
     sendMessage,
     initializeChat,
   }

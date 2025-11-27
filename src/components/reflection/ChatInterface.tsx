@@ -5,6 +5,7 @@ interface ChatInterfaceProps {
   chatMessages: ChatMessage[]
   currentMessage: string
   isAiTyping: boolean
+  aiStatus?: string
   onMessageChange: (message: string) => void
   onSendMessage: () => void
   onBack: () => void
@@ -15,6 +16,7 @@ export function ChatInterface({
   chatMessages,
   currentMessage,
   isAiTyping,
+  aiStatus,
   onMessageChange,
   onSendMessage,
   onBack,
@@ -64,19 +66,24 @@ export function ChatInterface({
                 <span className="text-xs">AI</span>
               </div>
               <div className="rounded-2xl border border-gray-200 bg-white px-4 py-3">
-                <div className="flex space-x-1">
-                  <div
-                    className="h-2 w-2 animate-bounce rounded-full bg-gray-400"
-                    style={{ animationDelay: '0ms' }}
-                  ></div>
-                  <div
-                    className="h-2 w-2 animate-bounce rounded-full bg-gray-400"
-                    style={{ animationDelay: '150ms' }}
-                  ></div>
-                  <div
-                    className="h-2 w-2 animate-bounce rounded-full bg-gray-400"
-                    style={{ animationDelay: '300ms' }}
-                  ></div>
+                <div className="flex items-center space-x-2">
+                  <div className="flex space-x-1">
+                    <div
+                      className="h-2 w-2 animate-bounce rounded-full bg-gray-400"
+                      style={{ animationDelay: '0ms' }}
+                    ></div>
+                    <div
+                      className="h-2 w-2 animate-bounce rounded-full bg-gray-400"
+                      style={{ animationDelay: '150ms' }}
+                    ></div>
+                    <div
+                      className="h-2 w-2 animate-bounce rounded-full bg-gray-400"
+                      style={{ animationDelay: '300ms' }}
+                    ></div>
+                  </div>
+                  {aiStatus && (
+                    <span className="text-xs text-gray-500">{aiStatus}</span>
+                  )}
                 </div>
               </div>
             </div>

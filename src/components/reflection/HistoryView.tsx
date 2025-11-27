@@ -177,6 +177,34 @@ export function HistoryView({
                       </div>
                     </div>
 
+                    {(record.items || []).filter((item: any) => item.type === 'insight').length >
+                      0 && (
+                      <div className="mb-4">
+                        <h5 className="mb-2 text-xs font-medium text-purple-700">気づき</h5>
+                        <div className="space-y-1">
+                          {(record.items || [])
+                            .filter((item: any) => item.type === 'insight')
+                            .map((item: any) => (
+                              <p
+                                key={item.id}
+                                className="rounded border border-purple-200 bg-purple-50 p-2 text-xs text-gray-700"
+                              >
+                                {searchKeyword &&
+                                item.text.toLowerCase().includes(searchKeyword.toLowerCase()) ? (
+                                  <span
+                                    dangerouslySetInnerHTML={{
+                                      __html: highlightText(item.text, searchKeyword),
+                                    }}
+                                  />
+                                ) : (
+                                  item.text
+                                )}
+                              </p>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+
                     {record.selectedItem && (
                       <div className="border-t border-gray-200 pt-4">
                         <h5 className="mb-2 text-xs font-medium text-gray-700">選択したトピック</h5>
